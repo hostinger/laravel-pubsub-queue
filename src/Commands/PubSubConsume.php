@@ -14,7 +14,8 @@ class PubSubConsume extends Command
                             {sub-name : The name of the sub to consume}
                             {--sleep=3 : Number of seconds to sleep when no job is available}
                             {--connection=pubsub : The maximum number of seconds the worker should run}
-                            {--max-time=0 : The maximum number of seconds the worker should run}';
+                            {--max-time=0 : The maximum number of seconds the worker should run}
+                            {--memory=128 : The memory limit in megabytes}';
 
     /**
      * @var string
@@ -39,7 +40,8 @@ class PubSubConsume extends Command
         return [
             'connection' => $this->getConnectionOption(),
             '--sleep' => $this->getSleepOption(),
-            '--max-time' => $this->getMaxTimeOption()
+            '--max-time' => $this->getMaxTimeOption(),
+            '--memory' => $this->getMemoryOption(),
         ];
     }
 
@@ -83,5 +85,13 @@ class PubSubConsume extends Command
     private function getMaxTimeOption(): string
     {
         return $this->option('max-time');
+    }
+
+    /**
+     * @return string
+     */
+    private function getMemoryOption(): string
+    {
+        return $this->option('memory');
     }
 }
