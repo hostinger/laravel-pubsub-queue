@@ -55,19 +55,34 @@ class PubSubQueue extends Queue implements QueueContract
     protected $queuePrefix = '';
 
     /**
+     * If the pull requests should return immediately.
+     *
+     * @var bool
+     */
+    protected $returnImmediately;
+
+    /**
      * Create a new GCP PubSub instance.
      *
      * @param \Google\Cloud\PubSub\PubSubClient $pubsub
      * @param string $default
      */
-    public function __construct(PubSubClient $pubsub, $default, $subscriber = 'subscriber', $topicAutoCreation = true, $subscriptionAutoCreation = true, $queuePrefix = '')
-    {
+    public function __construct(
+        PubSubClient $pubsub,
+        $default,
+        $subscriber = 'subscriber',
+        $topicAutoCreation = true,
+        $subscriptionAutoCreation = true,
+        $queuePrefix = '',
+        $returnImmediately = true
+    ) {
         $this->pubsub = $pubsub;
         $this->default = $default;
         $this->subscriber = $subscriber;
         $this->topicAutoCreation = $topicAutoCreation;
         $this->subscriptionAutoCreation = $subscriptionAutoCreation;
         $this->queuePrefix = $queuePrefix;
+        $this->returnImmediately = $returnImmediately;
     }
 
     /**
@@ -163,7 +178,7 @@ class PubSubQueue extends Queue implements QueueContract
 
         $subscription = $topic->subscription($this->getSubscriberName());
         $messages = $subscription->pull([
-            'returnImmediately' => true,
+            'returnImmediately' => $this->returnImmediately ?? true,
             'maxMessages' => 1,
         ]);
 
