@@ -15,7 +15,8 @@ class PubSubConsume extends Command
                             {--sleep=3 : Number of seconds to sleep when no job is available}
                             {--connection=pubsub : The maximum number of seconds the worker should run}
                             {--max-time=0 : The maximum number of seconds the worker should run}
-                            {--memory=128 : The memory limit in megabytes}';
+                            {--memory=128 : The memory limit in megabytes}
+                            {--json : Print the output in JSON format}';
 
     /**
      * @var string
@@ -42,6 +43,7 @@ class PubSubConsume extends Command
             '--sleep' => $this->getSleepOption(),
             '--max-time' => $this->getMaxTimeOption(),
             '--memory' => $this->getMemoryOption(),
+            '--json' => $this->getJsonOption(),
         ];
     }
 
@@ -93,5 +95,13 @@ class PubSubConsume extends Command
     private function getMemoryOption(): string
     {
         return $this->option('memory');
+    }
+
+    /**
+     * @return bool
+     */
+    private function getJsonOption(): bool
+    {
+        return (bool)$this->option('json');
     }
 }
