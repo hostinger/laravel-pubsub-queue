@@ -391,4 +391,24 @@ class PubSubQueue extends Queue implements QueueContract
     {
         return Str::random(32);
     }
+
+    public function pendingSize($queue = null)
+    {
+        return 0;
+    }
+
+    public function delayedSize($queue = null)
+    {
+        return 0;
+    }
+
+    public function reservedSize($queue = null)
+    {
+        return 0;
+    }
+
+    public function creationTimeOfOldestPendingJob($queue = null)
+    {
+        return null;
+    }
 }
