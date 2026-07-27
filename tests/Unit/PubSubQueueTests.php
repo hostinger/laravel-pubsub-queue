@@ -3,6 +3,7 @@
 namespace Kainxspirits\PubSubQueue\Tests\Unit;
 
 use Carbon\Carbon;
+use Google\Cloud\Core\Exception\ServiceException;
 use Google\Cloud\PubSub\Message;
 use Google\Cloud\PubSub\PubSubClient;
 use Google\Cloud\PubSub\Subscription;
@@ -13,6 +14,7 @@ use Kainxspirits\PubSubQueue\Jobs\PubSubJob;
 use Kainxspirits\PubSubQueue\PubSubQueue;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use ReflectionProperty;
 
 class PubSubQueueTests extends TestCase
 {
@@ -22,61 +24,54 @@ class PubSubQueueTests extends TestCase
     protected $expectedResult = 'message-id';
 
     /**
-     * @var Topic
+     * @var \PHPUnit\Framework\MockObject\MockObject&Topic
      */
     protected $topic;
 
     /**
-     * @var PubSubClient
+     * @var \PHPUnit\Framework\MockObject\MockObject&PubSubClient
      */
     protected $client;
 
     /**
-     * @var Subscription
+     * @var \PHPUnit\Framework\MockObject\MockObject&Subscription
      */
     protected $subscription;
 
     /**
-     * @var Message
+     * @var \PHPUnit\Framework\MockObject\MockObject&Message
      */
     protected $message;
 
     /**
-     * @var PubSubQueue
+     * @var \PHPUnit\Framework\MockObject\MockObject&PubSubQueue
      */
     protected $queue;
 
-    public function setUp(): void
+    protected function setUp(): void
     {
         $this->expectedResult = 'message-id';
 
         $this->topic = $this->createMock(Topic::class);
         $this->client = $this->createMock(PubSubClient::class);
         $this->subscription = $this->createMock(Subscription::class);
-        $this->message = $this->createMock(Message::class);
+        $this->message = $this->createPulledMessage();
 
-        $this->queue = $this->getMockBuilder(PubSubQueue::class)
-            ->setConstructorArgs([$this->client, 'default'])
-            ->setMethods([
-                'pushRaw',
-                'getTopic',
-                'exists',
-                'subscription',
-                'availableAt',
-                'subscribeToTopic',
-            ])->getMock();
+        $this->queue = $this->createPartialQueue();
     }
 
-    public function testImplementsQueueInterface()
+    public function testImplementsQueueInterface(): void
     {
         $reflection = new ReflectionClass(PubSubQueue::class);
         $this->assertTrue($reflection->implementsInterface(QueueContract::class));
     }
 
-    public function testPushNewJob()
+    public function testPushNewJob(): void
     {
         $job = 'test';
         $data = ['foo' => 'bar'];
+
+        $this->queue->setContainer(Container::getInstance());
 
         $this->queue->expects($this->once())
             ->method('pushRaw')
@@ -90,11 +85,12 @@ class PubSubQueueTests extends TestCase
         $this->assertEquals($this->expectedResult, $this->queue->push('test', $data));
     }
 
-    public function testPushRaw()
+    public function testPushRaw(): void
     {
+        /** @var \PHPUnit\Framework\MockObject\MockObject&PubSubQueue $queue */
         $queue = $this->getMockBuilder(PubSubQueue::class)
             ->setConstructorArgs([$this->client, 'default'])
-            ->setMethods(['getTopic', 'subscribeToTopic'])
+            ->onlyMethods(['getTopic', 'subscribeToTopic'])
             ->getMock();
 
         $payload = json_encode(['id' => $this->expectedResult]);
@@ -116,25 +112,23 @@ class PubSubQueueTests extends TestCase
         $this->assertEquals($this->expectedResult, $queue->pushRaw($payload));
     }
 
-    public function testPushRawOptionsOnlyAcceptKeyValueStrings()
+    public function testPushRawOptionsOnlyAcceptKeyValueStrings(): void
     {
         $this->expectException(\UnexpectedValueException::class);
 
+        /** @var \PHPUnit\Framework\MockObject\MockObject&PubSubQueue $queue */
         $queue = $this->getMockBuilder(PubSubQueue::class)
             ->setConstructorArgs([$this->client, 'default'])
-            ->setMethods(['getTopic', 'subscribeToTopic'])
+            ->onlyMethods(['getTopic', 'subscribeToTopic'])
             ->getMock();
 
-        $this->topic->method('publish')
-            ->willReturn($this->expectedResult);
+        $payload = json_encode(['id' => $this->expectedResult]);
 
         $queue->method('getTopic')
             ->willReturn($this->topic);
 
         $queue->method('subscribeToTopic')
             ->willReturn($this->subscription);
-
-        $payload = json_encode(['id' => $this->expectedResult]);
 
         $options = [
             'integer' => 42,
@@ -148,11 +142,13 @@ class PubSubQueueTests extends TestCase
         $queue->pushRaw($payload, '', $options);
     }
 
-    public function testLater()
+    public function testLater(): void
     {
         $job = 'test';
         $delay = 60;
         $delay_timestamp = Carbon::now()->addSeconds($delay)->getTimestamp();
+
+        $this->queue->setContainer(Container::getInstance());
 
         $this->queue->method('availableAt')
             ->willReturn($delay_timestamp);
@@ -185,7 +181,7 @@ class PubSubQueueTests extends TestCase
         $this->assertEquals($this->expectedResult, $this->queue->later($delay, $job, ['foo' => 'bar']));
     }
 
-    public function testPopWhenJobsAvailable()
+    public function testPopWhenJobsAvailable(): void
     {
         $this->subscription->expects($this->once())
             ->method('acknowledge');
@@ -207,7 +203,7 @@ class PubSubQueueTests extends TestCase
         $this->assertTrue($this->queue->pop('test') instanceof PubSubJob);
     }
 
-    public function testPopWhenNoJobAvailable()
+    public function testPopWhenNoJobAvailable(): void
     {
         $this->subscription->expects($this->exactly(0))
             ->method('acknowledge');
@@ -227,7 +223,7 @@ class PubSubQueueTests extends TestCase
         $this->assertTrue(is_null($this->queue->pop('test')));
     }
 
-    public function testPopWhenTopicDoesNotExist()
+    public function testPopWhenTopicDoesNotExist(): void
     {
         $this->queue->method('getTopic')
             ->willReturn($this->topic);
@@ -238,12 +234,13 @@ class PubSubQueueTests extends TestCase
         $this->assertTrue(is_null($this->queue->pop('test')));
     }
 
-    public function testPopWhenJobDelayed()
+    public function testPopWhenJobDelayed(): void
     {
         $delay = 60;
         $timestamp = Carbon::now()->addSeconds($delay)->getTimestamp();
 
-        $message = $this->message->method('attribute')
+        $this->message = $this->createPulledMessage();
+        $this->message->method('attribute')
             ->willReturn($timestamp);
 
         $this->subscription->method('pull')
@@ -263,10 +260,177 @@ class PubSubQueueTests extends TestCase
         $this->assertTrue(is_null($this->queue->pop('test')));
     }
 
-    public function testBulk()
+    public function testPopPullsWithSingleMessageOptionsByDefault(): void
+    {
+        $this->subscription->expects($this->once())
+            ->method('pull')
+            ->with($this->callback(function ($options) {
+                return $options['maxMessages'] === 1
+                    && $options['returnImmediately'] === true;
+            }))
+            ->willReturn([$this->message]);
+
+        $this->subscription->expects($this->once())
+            ->method('acknowledge');
+
+        $this->topic->method('subscription')
+            ->willReturn($this->subscription);
+
+        $this->topic->method('exists')
+            ->willReturn(true);
+
+        $this->queue->method('getTopic')
+            ->willReturn($this->topic);
+
+        $this->queue->setContainer($this->createMock(Container::class));
+
+        $this->assertTrue($this->queue->pop('test') instanceof PubSubJob);
+    }
+
+    public function testPopPullsBatchOnceAndHandsOutBufferedJobs(): void
+    {
+        $messages = [
+            $this->createPulledMessage(),
+            $this->createPulledMessage(),
+            $this->createPulledMessage(),
+        ];
+
+        $queue = $this->createPartialQueue([
+            $this->client, 'default', 'subscriber', true, true, '', true, 3, 60,
+        ]);
+
+        $this->subscription->expects($this->once())
+            ->method('pull')
+            ->with($this->callback(function ($options) {
+                return $options['maxMessages'] === 3;
+            }))
+            ->willReturn($messages);
+
+        $this->subscription->expects($this->exactly(3))
+            ->method('acknowledge');
+
+        $this->topic->method('subscription')
+            ->willReturn($this->subscription);
+
+        $this->topic->method('exists')
+            ->willReturn(true);
+
+        $queue->method('getTopic')
+            ->willReturn($this->topic);
+
+        $queue->setContainer($this->createMock(Container::class));
+
+        $this->assertTrue($queue->pop('test') instanceof PubSubJob);
+        $this->assertTrue($queue->pop('test') instanceof PubSubJob);
+        $this->assertTrue($queue->pop('test') instanceof PubSubJob);
+    }
+
+    public function testPopSkipsDelayedMessagesInBatchAndServesDueOnes(): void
+    {
+        $future_timestamp = Carbon::now()->addSeconds(60)->getTimestamp();
+
+        $delayed_message = $this->createPulledMessage();
+        $delayed_message->method('attribute')
+            ->willReturnMap([
+                ['available_at', $future_timestamp],
+                ['topic', null],
+            ]);
+
+        $due_message = $this->createPulledMessage();
+
+        $queue = $this->createPartialQueue([
+            $this->client, 'default', 'subscriber', true, true, '', true, 2, 60,
+        ]);
+
+        $this->subscription->method('pull')
+            ->willReturn([$delayed_message, $due_message]);
+
+        // Only the due message must be acknowledged; the delayed one is left
+        // unacked so PubSub redelivers it after the ack deadline.
+        $this->subscription->expects($this->once())
+            ->method('acknowledge')
+            ->with($this->identicalTo($due_message));
+
+        $this->topic->method('subscription')
+            ->willReturn($this->subscription);
+
+        $this->topic->method('exists')
+            ->willReturn(true);
+
+        $queue->method('getTopic')
+            ->willReturn($this->topic);
+
+        $queue->setContainer($this->createMock(Container::class));
+
+        $this->assertTrue($queue->pop('test') instanceof PubSubJob);
+    }
+
+    public function testPopDropsStaleBufferedMessagesWithoutAck(): void
+    {
+        $queue = $this->createPartialQueue([
+            $this->client, 'default', 'subscriber', true, true, '', true, 2, 60,
+        ]);
+
+        $buffer = new ReflectionProperty(PubSubQueue::class, 'messageBuffer');
+        $buffer->setValue($queue, [
+            'test' => [
+                ['message' => $this->message, 'pulled_at' => time() - 120],
+            ],
+        ]);
+
+        $this->subscription->expects($this->never())
+            ->method('acknowledge');
+
+        $this->subscription->expects($this->never())
+            ->method('pull');
+
+        $this->assertTrue(is_null($queue->pop('test')));
+    }
+
+    public function testPopReturnsNullWhenPullTimesOut(): void
+    {
+        $this->subscription->method('pull')
+            ->willThrowException(new ServiceException(
+                'cURL error 28: Operation timed out after 60001 milliseconds with 0 bytes received'
+            ));
+
+        $this->topic->method('subscription')
+            ->willReturn($this->subscription);
+
+        $this->topic->method('exists')
+            ->willReturn(true);
+
+        $this->queue->method('getTopic')
+            ->willReturn($this->topic);
+
+        $this->assertTrue(is_null($this->queue->pop('test')));
+    }
+
+    public function testPopRethrowsNonTimeoutServiceExceptions(): void
+    {
+        $this->expectException(ServiceException::class);
+
+        $this->subscription->method('pull')
+            ->willThrowException(new ServiceException('The caller does not have permission', 403));
+
+        $this->topic->method('subscription')
+            ->willReturn($this->subscription);
+
+        $this->topic->method('exists')
+            ->willReturn(true);
+
+        $this->queue->method('getTopic')
+            ->willReturn($this->topic);
+
+        $this->queue->pop('test');
+    }
+
+    public function testBulk(): void
     {
         $jobs = ['test'];
         $data = ['foo' => 'bar'];
+
+        $this->queue->setContainer(Container::getInstance());
 
         $this->topic->expects($this->once())
             ->method('publishBatch')
@@ -286,7 +450,7 @@ class PubSubQueueTests extends TestCase
         $this->assertEquals($this->expectedResult, $this->queue->bulk($jobs, $data));
     }
 
-    public function testAcknowledge()
+    public function testAcknowledge(): void
     {
         $this->subscription->expects($this->once())
             ->method('acknowledge');
@@ -300,7 +464,7 @@ class PubSubQueueTests extends TestCase
         $this->queue->acknowledge($this->message);
     }
 
-    public function testRepublish()
+    public function testRepublish(): void
     {
         $options = ['foo' => 'bar'];
         $delay = 60;
@@ -336,26 +500,13 @@ class PubSubQueueTests extends TestCase
                     }
 
                     return true;
-                }),
-                $this->callback(function ($options) {
-                    if (! is_array($options)) {
-                        return false;
-                    }
-
-                    foreach ($options as $key => $option) {
-                        if (! is_string($option) || ! is_string($key)) {
-                            return false;
-                        }
-                    }
-
-                    return true;
                 })
             );
 
         $this->queue->republish($this->message, 'test', $options, $delay);
     }
 
-    public function testRepublishOptionsOnlyAcceptString()
+    public function testRepublishOptionsOnlyAcceptString(): void
     {
         $this->expectException(\UnexpectedValueException::class);
 
@@ -386,7 +537,7 @@ class PubSubQueueTests extends TestCase
         $this->queue->republish($this->message, 'test', $options, $delay);
     }
 
-    public function testGetTopic()
+    public function testGetTopic(): void
     {
         $this->topic->method('exists')
             ->willReturn(true);
@@ -394,15 +545,12 @@ class PubSubQueueTests extends TestCase
         $this->client->method('topic')
             ->willReturn($this->topic);
 
-        $queue = $this->getMockBuilder(PubSubQueue::class)
-            ->setConstructorArgs([$this->client, 'default'])
-            ->setMethods()
-            ->getMock();
+        $queue = $this->createRealQueue();
 
         $this->assertTrue($queue->getTopic('test') instanceof Topic);
     }
 
-    public function testCreateTopicAndReturnIt()
+    public function testCreateTopicAndReturnIt(): void
     {
         $this->topic->method('exists')
             ->willReturn(false);
@@ -414,15 +562,12 @@ class PubSubQueueTests extends TestCase
         $this->client->method('topic')
             ->willReturn($this->topic);
 
-        $queue = $this->getMockBuilder(PubSubQueue::class)
-            ->setConstructorArgs([$this->client, 'default'])
-            ->setMethods()
-            ->getMock();
+        $queue = $this->createRealQueue();
 
         $this->assertTrue($queue->getTopic('test', true) instanceof Topic);
     }
 
-    public function testSubscribtionIsCreated()
+    public function testSubscribtionIsCreated(): void
     {
         $this->topic->method('subscription')
             ->willReturn($this->subscription);
@@ -433,15 +578,12 @@ class PubSubQueueTests extends TestCase
         $this->subscription->method('exists')
             ->willReturn(false);
 
-        $queue = $this->getMockBuilder(PubSubQueue::class)
-            ->setConstructorArgs([$this->client, 'default'])
-            ->setMethods()
-            ->getMock();
+        $queue = $this->createRealQueue();
 
         $this->assertTrue($queue->subscribeToTopic($this->topic) instanceof Subscription);
     }
 
-    public function testSubscriptionIsRetrieved()
+    public function testSubscriptionIsRetrieved(): void
     {
         $this->topic->method('subscription')
             ->willReturn($this->subscription);
@@ -449,27 +591,54 @@ class PubSubQueueTests extends TestCase
         $this->subscription->method('exists')
             ->willReturn(true);
 
-        $queue = $this->getMockBuilder(PubSubQueue::class)
-            ->setConstructorArgs([$this->client, 'default'])
-            ->setMethods()
-            ->getMock();
+        $queue = $this->createRealQueue();
 
         $this->assertTrue($queue->subscribeToTopic($this->topic) instanceof Subscription);
     }
 
-    public function testGetSubscriberName()
+    public function testGetSubscriberName(): void
     {
-        $queue = $this->getMockBuilder(PubSubQueue::class)
-            ->setConstructorArgs([$this->client, 'default', 'test-subscriber'])
-            ->setMethods()
-            ->getMock();
+        $queue = $this->createRealQueue([$this->client, 'default', 'test-subscriber']);
 
         $this->assertTrue(is_string($queue->getSubscriberName()));
         $this->assertEquals($queue->getSubscriberName(), 'test-subscriber');
     }
 
-    public function testGetPubSub()
+    public function testGetPubSub(): void
     {
         $this->assertTrue($this->queue->getPubSub() instanceof PubSubClient);
+    }
+
+    /**
+     * @return \PHPUnit\Framework\MockObject\MockObject&Message
+     */
+    private function createPulledMessage()
+    {
+        $message = $this->createMock(Message::class);
+
+        $message->method('data')
+            ->willReturn(base64_encode(json_encode(['id' => $this->expectedResult])));
+
+        return $message;
+    }
+
+    /**
+     * @return \PHPUnit\Framework\MockObject\MockObject&PubSubQueue
+     */
+    private function createPartialQueue(?array $constructorArgs = null)
+    {
+        return $this->getMockBuilder(PubSubQueue::class)
+            ->setConstructorArgs($constructorArgs ?? [$this->client, 'default'])
+            ->onlyMethods([
+                'pushRaw',
+                'getTopic',
+                'availableAt',
+                'subscribeToTopic',
+            ])->getMock();
+    }
+
+    private function createRealQueue(?array $constructorArgs = null): PubSubQueue
+    {
+        return new PubSubQueue(...($constructorArgs ?? [$this->client, 'default']));
     }
 }

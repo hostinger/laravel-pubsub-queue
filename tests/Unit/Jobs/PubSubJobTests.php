@@ -13,7 +13,47 @@ use ReflectionClass;
 
 class PubSubJobTests extends TestCase
 {
-    public function setUp(): void
+    /**
+     * @var string
+     */
+    protected $messageId;
+
+    /**
+     * @var string
+     */
+    protected $messageData;
+
+    /**
+     * @var string
+     */
+    protected $messageEncodedData;
+
+    /**
+     * @var \PHPUnit\Framework\MockObject\MockObject&Container
+     */
+    protected $container;
+
+    /**
+     * @var \PHPUnit\Framework\MockObject\MockObject&PubSubQueue
+     */
+    protected $queue;
+
+    /**
+     * @var \PHPUnit\Framework\MockObject\MockObject&PubSubClient
+     */
+    protected $client;
+
+    /**
+     * @var \PHPUnit\Framework\MockObject\MockObject&Message
+     */
+    protected $message;
+
+    /**
+     * @var \PHPUnit\Framework\MockObject\MockObject&PubSubJob
+     */
+    protected $job;
+
+    protected function setUp(): void
     {
         $this->messageId = '1234';
         $this->messageData = json_encode(['id' => $this->messageId, 'foo' => 'bar']);
@@ -25,7 +65,7 @@ class PubSubJobTests extends TestCase
 
         $this->message = $this->getMockBuilder(Message::class)
             ->setConstructorArgs([[], []])
-            ->setMethods(['data', 'id', 'attributes'])
+            ->onlyMethods(['data', 'id', 'attributes'])
             ->getMock();
 
         $this->message->method('data')
@@ -34,44 +74,56 @@ class PubSubJobTests extends TestCase
         $this->message->method('id')
             ->willReturn($this->messageId);
 
-        $this->message->method('attributes')
-            ->with($this->equalTo('attempts'))
-            ->willReturn(42);
-
         $this->job = $this->getMockBuilder(PubSubJob::class)
             ->setConstructorArgs([$this->container, $this->queue, $this->message, 'test', 'test'])
-            ->setMethods()
+            ->onlyMethods([])
             ->getMock();
     }
 
-    public function testImplementsJobInterface()
+    public function testImplementsJobInterface(): void
     {
         $reflection = new ReflectionClass(PubSubJob::class);
         $this->assertTrue($reflection->implementsInterface(JobContract::class));
     }
 
-    public function testGetJobId()
+    public function testGetJobId(): void
     {
         $this->assertEquals($this->job->getJobId(), $this->messageId);
     }
 
-    public function testGetRawBody()
+    public function testGetRawBody(): void
     {
         $this->assertEquals($this->job->getRawBody(), $this->messageData);
     }
 
-    public function testDeleteMethodSetDeletedProperty()
+    public function testGetAttributes(): void
+    {
+        $this->message->method('attributes')
+            ->willReturn(['foo' => 'bar']);
+
+        $this->assertEquals(['foo' => 'bar'], $this->job->getAttributes());
+    }
+
+    public function testGetPayloadAsArray(): void
+    {
+        $this->assertEquals(
+            ['id' => $this->messageId, 'foo' => 'bar'],
+            $this->job->getPayloadAsArray()
+        );
+    }
+
+    public function testDeleteMethodSetDeletedProperty(): void
     {
         $this->job->delete();
         $this->assertTrue($this->job->isDeleted());
     }
 
-    public function testAttempts()
+    public function testAttempts(): void
     {
         $this->assertTrue(is_int($this->job->attempts()));
     }
 
-    public function testReleaseAndPublish()
+    public function testReleaseAndPublish(): void
     {
         $this->queue->expects($this->once())
             ->method('republish')
@@ -96,7 +148,7 @@ class PubSubJobTests extends TestCase
         $this->job->release();
     }
 
-    public function testReleaseMethodSetReleasedProperty()
+    public function testReleaseMethodSetReleasedProperty(): void
     {
         $this->job->release();
         $this->assertTrue($this->job->isReleased());

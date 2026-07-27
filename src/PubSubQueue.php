@@ -2,6 +2,7 @@
 
 namespace Kainxspirits\PubSubQueue;
 
+use Google\Cloud\Core\Exception\ServiceException;
 use Google\Cloud\PubSub\Message;
 use Google\Cloud\PubSub\PubSubClient;
 use Google\Cloud\PubSub\Topic;
@@ -62,6 +63,34 @@ class PubSubQueue extends Queue implements QueueContract
     protected $returnImmediately;
 
     /**
+     * Maximum number of messages to pull per request. Messages beyond
+     * the first are buffered in-memory and handed out one by one on
+     * subsequent pop() calls, saving one HTTP round-trip per message.
+     *
+     * @var int
+     */
+    protected $pullMaxMessages;
+
+    /**
+     * Maximum age in seconds a buffered message may reach before it is
+     * dropped unacked. Once the subscription ack deadline has passed,
+     * PubSub may have redelivered the message to another consumer, so
+     * processing it from the buffer would duplicate work. Dropped
+     * messages are redelivered by PubSub. Set to 0 to disable the guard.
+     *
+     * @var int
+     */
+    protected $maxBufferAge;
+
+    /**
+     * Locally buffered pulled messages, keyed by queue name. Each entry
+     * is ['message' => Message, 'pulled_at' => int].
+     *
+     * @var array
+     */
+    protected $messageBuffer = [];
+
+    /**
      * Create a new GCP PubSub instance.
      *
      * @param \Google\Cloud\PubSub\PubSubClient $pubsub
@@ -74,7 +103,9 @@ class PubSubQueue extends Queue implements QueueContract
         $topicAutoCreation = true,
         $subscriptionAutoCreation = true,
         $queuePrefix = '',
-        $returnImmediately = true
+        $returnImmediately = true,
+        $pullMaxMessages = 1,
+        $maxBufferAge = 60
     ) {
         $this->pubsub = $pubsub;
         $this->default = $default;
@@ -83,6 +114,8 @@ class PubSubQueue extends Queue implements QueueContract
         $this->subscriptionAutoCreation = $subscriptionAutoCreation;
         $this->queuePrefix = $queuePrefix;
         $this->returnImmediately = $returnImmediately;
+        $this->pullMaxMessages = max(1, (int) $pullMaxMessages);
+        $this->maxBufferAge = max(0, (int) $maxBufferAge);
     }
 
     /**
@@ -165,10 +198,64 @@ class PubSubQueue extends Queue implements QueueContract
     /**
      * Pop the next job off of the queue.
      *
+     * Pulls up to $pullMaxMessages messages at once and buffers the surplus
+     * in-memory, handing out one job per call. Only one pull request is made
+     * per call, so a queue containing only delayed messages behaves like the
+     * previous single-message implementation (return null, worker sleeps).
+     *
      * @param  string  $queue
      * @return \Illuminate\Contracts\Queue\Job|null
      */
     public function pop($queue = null)
+    {
+        $bufferKey = $this->getQueue($queue);
+
+        if (empty($this->messageBuffer[$bufferKey])) {
+            $this->fillBuffer($bufferKey, $queue);
+        }
+
+        while (! empty($this->messageBuffer[$bufferKey])) {
+            $entry = array_shift($this->messageBuffer[$bufferKey]);
+
+            /** @var Message $message */
+            $message = $entry['message'];
+
+            // Its ack deadline may have expired while buffered; PubSub will
+            // redeliver it, so processing it here would duplicate work.
+            if ($this->maxBufferAge > 0 && (time() - $entry['pulled_at']) > $this->maxBufferAge) {
+                continue;
+            }
+
+            // Delayed job not yet due: leave unacked so PubSub redelivers it
+            // after the ack deadline (same as single-message behavior).
+            $available_at = $message->attribute('available_at');
+            if ($available_at && $available_at > time()) {
+                continue;
+            }
+
+            $this->acknowledge($message, $queue);
+
+            return new PubSubJob(
+                $this->container,
+                $this,
+                $message,
+                $this->connectionName,
+                $message->attribute('topic') ?: $this->getQueue($queue)
+            );
+        }
+
+        return;
+    }
+
+    /**
+     * Pull a batch of messages into the local buffer.
+     *
+     * @param  string $bufferKey
+     * @param  string $queue
+     *
+     * @return void
+     */
+    protected function fillBuffer($bufferKey, $queue)
     {
         $topic = $this->getTopic($this->getQueue($queue));
 
@@ -177,29 +264,49 @@ class PubSubQueue extends Queue implements QueueContract
         }
 
         $subscription = $topic->subscription($this->getSubscriberName());
-        $messages = $subscription->pull([
-            'returnImmediately' => $this->returnImmediately ?? true,
-            'maxMessages' => 1,
-        ]);
 
-        if (empty($messages) || count($messages) < 1) {
+        try {
+            $messages = $subscription->pull([
+                'returnImmediately' => $this->returnImmediately ?? true,
+                'maxMessages' => $this->pullMaxMessages,
+            ]);
+        } catch (ServiceException $exception) {
+            // With returnImmediately=false the server holds the request while
+            // the queue is empty, which can outlast the client HTTP timeout.
+            // Treat that as "no messages"; anything else keeps propagating.
+            if ($this->isTimeoutException($exception)) {
+                return;
+            }
+
+            throw $exception;
+        }
+
+        if (empty($messages)) {
             return;
         }
 
-        $available_at = $messages[0]->attribute('available_at');
-        if ($available_at && $available_at > time()) {
-            return;
+        $pulledAt = time();
+
+        foreach ($messages as $message) {
+            $this->messageBuffer[$bufferKey][] = [
+                'message' => $message,
+                'pulled_at' => $pulledAt,
+            ];
         }
+    }
 
-        $this->acknowledge($messages[0], $queue);
-
-        return new PubSubJob(
-            $this->container,
-            $this,
-            $messages[0],
-            $this->connectionName,
-            $messages[0]->attribute('topic') ?: $this->getQueue($queue)
-        );
+    /**
+     * Whether the exception represents a client-side pull timeout.
+     *
+     * @param  \Google\Cloud\Core\Exception\ServiceException $exception
+     *
+     * @return bool
+     */
+    protected function isTimeoutException(ServiceException $exception)
+    {
+        return in_array($exception->getCode(), [408, 504], true)
+            || stripos($exception->getMessage(), 'timed out') !== false
+            || stripos($exception->getMessage(), 'timeout') !== false;
     }
 
     /**

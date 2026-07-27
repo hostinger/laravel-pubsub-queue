@@ -20,9 +20,16 @@ class PubSubJob extends Job implements JobContract
     /**
      * The job instance.
      *
-     * @var array
+     * @var \Google\Cloud\PubSub\Message
      */
     protected $job;
+
+    /**
+     * The decoded payload.
+     *
+     * @var array
+     */
+    protected $decoded;
 
     /**
      * Create a new job instance.
