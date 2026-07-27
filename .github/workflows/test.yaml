@@ -1,0 +1,48 @@
+name: 'test'
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  test:
+    runs-on:
+      - fireactions-c2-m4
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get GitHub token
+        uses: actions/create-github-app-token@v1
+        id: get_token
+        with:
+          app-id: ${{ secrets.HOSTINGERBOT_APP_ID }}
+          private-key: ${{ secrets.HOSTINGERBOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Build test image
+        id: build
+        uses: hostinger/actions/build-push@main
+        with:
+          docker-target: base
+          github-token: ${{ steps.get_token.outputs.token }}
+          docker-push: false
+          docker-load: true
+
+      - name: Run PHP testing
+        uses: hostinger/actions/actions/php-testing-action@main
+        with:
+          image: ${{ steps.build.outputs.image }}
+          database-seed: false
+          build-docs: false
+          static-analysis-cmd: make l-test-static
+          min-line-coverage: 35
+          min-method-coverage: 35

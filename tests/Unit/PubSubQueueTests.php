@@ -12,10 +12,12 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Queue\Queue as QueueContract;
 use Kainxspirits\PubSubQueue\Jobs\PubSubJob;
 use Kainxspirits\PubSubQueue\PubSubQueue;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionProperty;
 
+#[AllowMockObjectsWithoutExpectations]
 class PubSubQueueTests extends TestCase
 {
     /**
@@ -157,7 +159,7 @@ class PubSubQueueTests extends TestCase
             ->method('pushRaw')
             ->willReturn($this->expectedResult)
             ->with(
-                $this->isType('string'),
+                $this->isString(),
                 $this->anything(),
                 $this->callback(function ($options) use ($delay_timestamp) {
                     if (! is_array($options)) {

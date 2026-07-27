@@ -1,0 +1,8 @@
+services:
+  php:
+    build: .
+    environment:
+      PHP_IDE_CONFIG: "serverName=laravel-pubsub-queue.localhost"
+      XDEBUG_CONFIG: "remote_host=host.docker.internal"
+    volumes:
+      - ./:/app:cached

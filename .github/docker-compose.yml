@@ -1,0 +1,6 @@
+services:
+  php:
+    image: ${IMAGE}
+    tty: true
+    volumes:
+      - ../tests:/app/tests
