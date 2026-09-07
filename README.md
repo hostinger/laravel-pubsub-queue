@@ -5,6 +5,17 @@
 
 This package is a Laravel queue driver that uses the [Google PubSub](https://github.com/GoogleCloudPlatform/google-cloud-php-pubsub) service.
 
+## Package name
+
+This is Hostinger's fork, published as `hostinger/laravel-pubsub-queue` from the `main` branch.
+The PHP namespace stays `Kainxspirits\PubSubQueue\`, so no `use` statement anywhere needs to
+change.
+
+The `master` branch is frozen and still publishes the old `kainxspirits/laravel-pubsub-queue`
+name. It exists only so that services which require this package as `dev-master` keep resolving
+to the behaviour they run today. Do not merge anything into `master`; it can be deleted once
+every consumer has moved to a version constraint on the new name.
+
 ## Installation
 
 You can easily install this package with [Composer](https://getcomposer.org) by running this command :

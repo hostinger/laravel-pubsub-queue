@@ -25,7 +25,7 @@ class PubSubJobTests extends TestCase
 
         $this->message = $this->getMockBuilder(Message::class)
             ->setConstructorArgs([[], []])
-            ->setMethods(['data', 'id', 'attributes'])
+            ->onlyMethods(['data', 'id', 'attributes'])
             ->getMock();
 
         $this->message->method('data')
@@ -40,7 +40,7 @@ class PubSubJobTests extends TestCase
 
         $this->job = $this->getMockBuilder(PubSubJob::class)
             ->setConstructorArgs([$this->container, $this->queue, $this->message, 'test', 'test'])
-            ->setMethods()
+            ->onlyMethods([])
             ->getMock();
     }
 

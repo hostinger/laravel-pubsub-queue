@@ -1,5 +1,5 @@
 {
-    "name": "kainxspirits/laravel-pubsub-queue",
+    "name": "hostinger/laravel-pubsub-queue",
     "description": "Queue driver for Google Cloud Pub/Sub.",
     "keywords": [
         "kainxspirits",
