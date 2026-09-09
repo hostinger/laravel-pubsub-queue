@@ -328,6 +328,21 @@ class PubSubQueueTests extends TestCase
         $this->queue->acknowledge($this->message);
     }
 
+    public function testModifyAckDeadline()
+    {
+        $this->subscription->expects($this->once())
+            ->method('modifyAckDeadline')
+            ->with($this->message, 70);
+
+        $this->topic->method('subscription')
+            ->willReturn($this->subscription);
+
+        $this->queue->method('getTopic')
+            ->willReturn($this->topic);
+
+        $this->queue->modifyAckDeadline($this->message, 70);
+    }
+
     public function testRepublish()
     {
         $options = ['foo' => 'bar'];

@@ -120,6 +120,15 @@ class PubSubJobTests extends TestCase
         $this->job->release();
     }
 
+    public function testExtendLease()
+    {
+        $this->queue->expects($this->once())
+            ->method('modifyAckDeadline')
+            ->with($this->message, 70, 'test');
+
+        $this->job->extendLease(70);
+    }
+
     public function testAttempts()
     {
         $this->assertTrue(is_int($this->job->attempts()));

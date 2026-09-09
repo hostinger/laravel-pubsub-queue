@@ -113,6 +113,20 @@ class PubSubJob extends Job implements JobContract
     }
 
     /**
+     * Extend how long Pub/Sub waits for this message to be acknowledged.
+     *
+     * Called before processing starts, so a handler slower than the subscription's ack deadline
+     * cannot have a duplicate released back to the subscription while it is still working.
+     *
+     * @param  int  $seconds
+     * @return void
+     */
+    public function extendLease($seconds)
+    {
+        $this->pubsub->modifyAckDeadline($this->job, $seconds, $this->queue);
+    }
+
+    /**
      * Release the job back into the queue.
      *
      * @param  int   $delay

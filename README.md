@@ -21,12 +21,17 @@ The consumer is then responsible for calling `$job->delete()`, which is where th
 is sent. Until that happens Pub/Sub still owns the message and redelivers it after the
 subscription's ack deadline, so a message survives a failed or crashed consumer.
 
-Two things to plan for before opting out:
+A consumer that does this should also extend the deadline before it starts work, so a handler
+slower than the subscription's ack deadline does not have a duplicate released back to the
+subscription while the original is still being processed:
 
-- **Handlers must be idempotent.** Delivery becomes genuinely at-least-once: a handler that fails
-  part-way through will see the message again.
-- **The subscription's `ackDeadline` must cover handler runtime.** A handler slower than the
-  deadline causes redelivery while it is still working.
+```php
+$job->extendLease(70);
+```
+
+Pub/Sub caps the deadline at 600 seconds. Handlers must be idempotent either way: delivery
+becomes genuinely at-least-once, so a handler that fails part-way through will see the message
+again.
 
 ## Installation
 

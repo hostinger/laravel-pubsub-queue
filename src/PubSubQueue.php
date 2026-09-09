@@ -266,6 +266,23 @@ class PubSubQueue extends Queue implements QueueContract
     }
 
     /**
+     * Extend how long Pub/Sub waits for a message to be acknowledged.
+     *
+     * A consumer that acknowledges after processing uses this to keep ownership of the message
+     * for as long as the work takes, so Pub/Sub does not redeliver a copy while the original is
+     * still being handled. Pub/Sub caps the deadline at 600 seconds.
+     *
+     * @param  \Google\Cloud\PubSub\Message $message
+     * @param  int $seconds
+     * @param  string $queue
+     */
+    public function modifyAckDeadline(Message $message, $seconds, $queue = null)
+    {
+        $subscription = $this->getTopic($this->getQueue($queue))->subscription($this->getSubscriberName());
+        $subscription->modifyAckDeadline($message, $seconds);
+    }
+
+    /**
      * Acknowledge a message.
      *
      * @param  \Google\Cloud\PubSub\Message $message
