@@ -66,6 +66,69 @@ class PubSubJobTests extends TestCase
         $this->assertTrue($this->job->isDeleted());
     }
 
+    public function testDeleteDoesNotAcknowledgeWhenTheQueueAlreadyAcknowledgedOnPop()
+    {
+        $this->queue->method('acknowledgesOnPop')
+            ->willReturn(true);
+
+        $this->queue->expects($this->never())
+            ->method('acknowledge');
+
+        $this->job->delete();
+
+        $this->assertTrue($this->job->isDeleted());
+    }
+
+    public function testDeleteAcknowledgesWhenTheQueueDoesNotAcknowledgeOnPop()
+    {
+        $this->queue->method('acknowledgesOnPop')
+            ->willReturn(false);
+
+        $this->queue->expects($this->once())
+            ->method('acknowledge')
+            ->with($this->message, 'test');
+
+        $this->job->delete();
+    }
+
+    public function testReleaseAcknowledgesTheSupersededMessageWhenNotAcknowledgingOnPop()
+    {
+        $this->queue->method('acknowledgesOnPop')
+            ->willReturn(false);
+
+        $this->queue->expects($this->once())
+            ->method('republish');
+
+        $this->queue->expects($this->once())
+            ->method('acknowledge')
+            ->with($this->message, 'test');
+
+        $this->job->release();
+    }
+
+    public function testReleaseDoesNotAcknowledgeWhenTheQueueAcknowledgedOnPop()
+    {
+        $this->queue->method('acknowledgesOnPop')
+            ->willReturn(true);
+
+        $this->queue->expects($this->once())
+            ->method('republish');
+
+        $this->queue->expects($this->never())
+            ->method('acknowledge');
+
+        $this->job->release();
+    }
+
+    public function testExtendLease()
+    {
+        $this->queue->expects($this->once())
+            ->method('modifyAckDeadline')
+            ->with($this->message, 70, 'test');
+
+        $this->job->extendLease(70);
+    }
+
     public function testAttempts()
     {
         $this->assertTrue(is_int($this->job->attempts()));

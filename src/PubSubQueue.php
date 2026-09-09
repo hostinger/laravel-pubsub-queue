@@ -62,6 +62,19 @@ class PubSubQueue extends Queue implements QueueContract
     protected $returnImmediately;
 
     /**
+     * Whether a message is acknowledged as soon as it is pulled.
+     *
+     * Acknowledging on pull loses any message that fails while it is being processed, because
+     * Pub/Sub considers it delivered and never redelivers it. It remains the default so that
+     * existing consumers keep the behaviour they run today. A consumer that acknowledges
+     * messages itself opts out with acknowledgeOnPop(false), and is then responsible for
+     * calling delete() on the job once it is done with it.
+     *
+     * @var bool
+     */
+    protected $ackOnPop = true;
+
+    /**
      * Create a new GCP PubSub instance.
      *
      * @param \Google\Cloud\PubSub\PubSubClient $pubsub
@@ -191,7 +204,9 @@ class PubSubQueue extends Queue implements QueueContract
             return;
         }
 
-        $this->acknowledge($messages[0], $queue);
+        if ($this->ackOnPop) {
+            $this->acknowledge($messages[0], $queue);
+        }
 
         return new PubSubJob(
             $this->container,
@@ -225,6 +240,46 @@ class PubSubQueue extends Queue implements QueueContract
         $this->subscribeToTopic($topic);
 
         return $topic->publishBatch($payloads);
+    }
+
+    /**
+     * Set whether a message should be acknowledged as soon as it is pulled.
+     *
+     * @param  bool  $ackOnPop
+     * @return $this
+     */
+    public function acknowledgeOnPop($ackOnPop = true)
+    {
+        $this->ackOnPop = (bool) $ackOnPop;
+
+        return $this;
+    }
+
+    /**
+     * Whether a message is acknowledged as soon as it is pulled.
+     *
+     * @return bool
+     */
+    public function acknowledgesOnPop()
+    {
+        return $this->ackOnPop;
+    }
+
+    /**
+     * Extend how long Pub/Sub waits for a message to be acknowledged.
+     *
+     * A consumer that acknowledges after processing uses this to keep ownership of the message
+     * for as long as the work takes, so Pub/Sub does not redeliver a copy while the original is
+     * still being handled. Pub/Sub caps the deadline at 600 seconds.
+     *
+     * @param  \Google\Cloud\PubSub\Message $message
+     * @param  int $seconds
+     * @param  string $queue
+     */
+    public function modifyAckDeadline(Message $message, $seconds, $queue = null)
+    {
+        $subscription = $this->getTopic($this->getQueue($queue))->subscription($this->getSubscriberName());
+        $subscription->modifyAckDeadline($message, $seconds);
     }
 
     /**

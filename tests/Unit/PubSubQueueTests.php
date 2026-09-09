@@ -205,6 +205,36 @@ class PubSubQueueTests extends TestCase
         $this->assertTrue($this->queue->pop('test') instanceof PubSubJob);
     }
 
+    public function testPopDoesNotAcknowledgeWhenOptedOut()
+    {
+        $this->subscription->expects($this->never())
+            ->method('acknowledge');
+
+        $this->subscription->method('pull')
+            ->willReturn([$this->message]);
+
+        $this->topic->method('subscription')
+            ->willReturn($this->subscription);
+
+        $this->topic->method('exists')
+            ->willReturn(true);
+
+        $this->queue->method('getTopic')
+            ->willReturn($this->topic);
+
+        $this->queue->setContainer($this->createMock(Container::class));
+        $this->queue->acknowledgeOnPop(false);
+
+        $this->assertTrue($this->queue->pop('test') instanceof PubSubJob);
+    }
+
+    public function testAcknowledgesOnPopByDefault()
+    {
+        $this->assertTrue($this->queue->acknowledgesOnPop());
+        $this->assertFalse($this->queue->acknowledgeOnPop(false)->acknowledgesOnPop());
+        $this->assertTrue($this->queue->acknowledgeOnPop()->acknowledgesOnPop());
+    }
+
     public function testPopWhenNoJobAvailable()
     {
         $this->subscription->expects($this->exactly(0))
@@ -296,6 +326,21 @@ class PubSubQueueTests extends TestCase
             ->willReturn($this->topic);
 
         $this->queue->acknowledge($this->message);
+    }
+
+    public function testModifyAckDeadline()
+    {
+        $this->subscription->expects($this->once())
+            ->method('modifyAckDeadline')
+            ->with($this->message, 70);
+
+        $this->topic->method('subscription')
+            ->willReturn($this->subscription);
+
+        $this->queue->method('getTopic')
+            ->willReturn($this->topic);
+
+        $this->queue->modifyAckDeadline($this->message, 70);
     }
 
     public function testRepublish()
