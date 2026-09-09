@@ -5,6 +5,29 @@
 
 This package is a Laravel queue driver that uses the [Google PubSub](https://github.com/GoogleCloudPlatform/google-cloud-php-pubsub) service.
 
+## Acknowledgement behaviour
+
+By default a message is acknowledged as soon as it is pulled. That is lossy: if processing then
+fails, Pub/Sub already considers the message delivered and never redelivers it. This remains the
+default so existing consumers are unaffected.
+
+A consumer can opt into acknowledging only once it is done with the message:
+
+```php
+$queue->acknowledgeOnPop(false);
+```
+
+The consumer is then responsible for calling `$job->delete()`, which is where the acknowledgement
+is sent. Until that happens Pub/Sub still owns the message and redelivers it after the
+subscription's ack deadline, so a message survives a failed or crashed consumer.
+
+Two things to plan for before opting out:
+
+- **Handlers must be idempotent.** Delivery becomes genuinely at-least-once: a handler that fails
+  part-way through will see the message again.
+- **The subscription's `ackDeadline` must cover handler runtime.** A handler slower than the
+  deadline causes redelivery while it is still working.
+
 ## Installation
 
 You can easily install this package with [Composer](https://getcomposer.org) by running this command :

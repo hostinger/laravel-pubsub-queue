@@ -95,6 +95,24 @@ class PubSubJob extends Job implements JobContract
     }
 
     /**
+     * Delete the job from the queue.
+     *
+     * When the queue is not acknowledging on pull, this is where the acknowledgement is sent.
+     * Until then Pub/Sub still owns the message and will redeliver it after the ack deadline,
+     * which is what makes a message survive a failed or crashed consumer.
+     *
+     * @return void
+     */
+    public function delete()
+    {
+        parent::delete();
+
+        if (! $this->pubsub->acknowledgesOnPop()) {
+            $this->pubsub->acknowledge($this->job, $this->queue);
+        }
+    }
+
+    /**
      * Release the job back into the queue.
      *
      * @param  int   $delay
@@ -111,5 +129,11 @@ class PubSubJob extends Job implements JobContract
             ['attempts' => (string) $attempts],
             $delay
         );
+
+        // The republished copy supersedes this message, so acknowledge the original to stop
+        // Pub/Sub redelivering it alongside the copy.
+        if (! $this->pubsub->acknowledgesOnPop()) {
+            $this->pubsub->acknowledge($this->job, $this->queue);
+        }
     }
 }
