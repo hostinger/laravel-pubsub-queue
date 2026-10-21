@@ -1,0 +1,48 @@
+name: 'release'
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on:
+      - fireactions-c2-m4
+
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: ${{ github.event.pull_request.title }}
+          SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          latest=$(gh api "repos/$GH_REPO/tags" --paginate --jq '.[].name' \
+            | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
+            | awk '{ v = $0; sub(/^v/, "", v); print v, $0 }' \
+            | sort -V | tail -n 1 | cut -d' ' -f2)
+          latest=${latest:-v0.0.0}
+
+          prefix=${latest%%[0-9]*}
+          IFS=. read -r major minor patch <<< "${latest#"$prefix"}"
+
+          if [[ $TITLE =~ ^[a-zA-Z]+(\([^\)]*\))?!: ]]; then
+            major=$((major + 1)); minor=0; patch=0
+          elif [[ $TITLE =~ ^feat(\([^\)]*\))?: ]]; then
+            minor=$((minor + 1)); patch=0
+          else
+            patch=$((patch + 1))
+          fi
+
+          tag="$prefix$major.$minor.$patch"
+          echo "$latest -> $tag ($TITLE)"
+          gh release create "$tag" --target "$SHA" --title "$tag" --generate-notes
